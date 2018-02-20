@@ -6,7 +6,7 @@ use core::cell::Cell;
 use core::cmp;
 use dma;
 use kernel::ReturnCode;
-use kernel::common::VolatileCell;
+use kernel::common::regs::{ReadOnly,ReadWrite,WriteOnly};
 // other modules
 use kernel::hil;
 // local modules
@@ -14,39 +14,267 @@ use pm;
 
 // Register map for SAM4L USART
 #[repr(C)]
-struct USARTRegisters {
-    cr: VolatileCell<u32>, // 0x00
-    mr: VolatileCell<u32>,
-    ier: VolatileCell<u32>,
-    idr: VolatileCell<u32>,
-    imr: VolatileCell<u32>,
-    csr: VolatileCell<u32>,
-    rhr: VolatileCell<u32>,
-    thr: VolatileCell<u32>,
-    brgr: VolatileCell<u32>,
-    rtor: VolatileCell<u32>,
-    ttgr: VolatileCell<u32>, // 0x28
-    _reserved0: [VolatileCell<u32>; 5],
-    fidi: VolatileCell<u32>, // 0x40
-    ner: VolatileCell<u32>,
-    _reserved1: VolatileCell<u32>,
-    ifr: VolatileCell<u32>,
-    man: VolatileCell<u32>,
-    linmr: VolatileCell<u32>,
-    linir: VolatileCell<u32>,
-    linbrr: VolatileCell<u32>, // 0x5C
-    _reserved2: [VolatileCell<u32>; 33],
-    wpmr: VolatileCell<u32>, // 0xE4
-    wpsr: VolatileCell<u32>,
-    _reserved3: [VolatileCell<u32>; 4],
-    version: VolatileCell<u32>, // 0xFC
+struct UsartRegisters {
+    pub cr:       WriteOnly<u32, Control::Register>,        // 0x00
+    pub mr:       ReadWrite<u32, Mode::Register>,           // 0x04
+    pub ier:      WriteOnly<u32, Interrupt::Register>,      // 0x08
+    pub idr:      WriteOnly<u32, Interrupt::Register>,      // 0x0C
+    pub imr:      ReadOnly<u32,  Interrupt::Register>,      // 0x10
+    pub csr:      ReadOnly<u32,  ChannelStatus::Register>,  // 0x14
+    pub rhr:      ReadOnly<u32,  ReceiverHold::Register>,   // 0x18
+    pub thr:      WriteOnly<u32, TransmitHold::Register>,   // 0x1C
+    pub brgr:     ReadWrite<u32, BaudRate::Register>,       // 0x20
+    pub rtor:     ReadWrite<u32, RxTimeout::Register>,      // 0x24
+    pub ttgr:     ReadWrite<u32, TxTimeGuard::Register>,    // 0x28
+    _reserved0: [ReadOnly<u32>; 5],
+    pub fidi:     ReadWrite<u32, FidiRatio::Register>,      // 0x40
+    pub ner:      ReadOnly<u32, NumErrors::Register>,       // 0x44
+    _reserved1: ReadOnly<u32>,
+    pub  ifr:     ReadWrite<u32, IrdaFilter::Register>,     // 0x4C
+    pub  man:     ReadWrite<u32, Manchester::Register>,     // 0x50
+    pub linmr:    ReadWrite<u32, LinMode::Register>,        // 0x54
+    pub linir:    ReadWrite<u32, LinID::Register>,          // 0x58
+    pub linbr:    ReadOnly<u32,  LinBaud::Register>,        // 0x5C
+    _reserved2: [ReadOnly<u32>; 33],
+    pub wpmr:     ReadWrite<u32, ProtectMode::Register>,    // 0xE4
+    pub wpsr:     ReadOnly<u32,  ProtectStatus::Register>,  // 0xE8
+    _reserved3: [ReadOnly<u32>; 4],
+    pub version:  ReadOnly<u32,  Version::Register>,        // 0xFC
 }
 
-const USART_BASE_ADDRS: [*mut USARTRegisters; 4] = [
-    0x40024000 as *mut USARTRegisters,
-    0x40028000 as *mut USARTRegisters,
-    0x4002C000 as *mut USARTRegisters,
-    0x40030000 as *mut USARTRegisters,
+register_bitfields![u32,
+                    Control [
+                        LINWKUP 21,
+                        LINABT  20,
+                        RTSDIS  19,
+                        RTSEN   18,
+                        DTRDIS  17,
+                        DTREN   16,
+                        RETTO   15,
+                        RSTNACK 14,
+                        RSTIT   13,
+                        SENDA   12,
+                        STTT0   11,
+                        STPBRK  10,
+                        STTBRK   9,
+                        RSTSTA   8,
+                        TXDIS    7,
+                        TXEN     6,
+                        RXDIS    5,
+                        RXEN     4,
+                        RSTTX    3,
+                        RSTRX    2
+                    ],
+                    Mode [
+                        ONEBIT        OFFSET(31)  NUMBITS(1) [],
+                        MODSYNC       OFFSET(30)  NUMBITS(1) [],
+                        MAN           OFFSET(29)  NUMBITS(1) [],
+                        FILTER        OFFSET(28)  NUMBITS(1) [],
+                        MAX_ITERATION OFFSET(24)  NUMBITS(3) [],
+                        INVDATA       OFFSET(23)  NUMBITS(1) [],
+                        VAR_SYNC      OFFSET(22)  NUMBITS(1) [],
+                        DSNACK        OFFSET(21)  NUMBITS(1) [],
+                        INACK         OFFSET(20)  NUMBITS(1) [],
+                        OVER          OFFSET(19)  NUMBITS(1) [],
+                        CLKO          OFFSET(21)  NUMBITS(1) [],
+                        MODE9         OFFSET(20)  NUMBITS(1) [],
+                        MSBF          OFFSET(19)  NUMBITS(1) [],
+                        CHMODE        OFFSET(14)  NUMBITS(2) [
+                            NORMAL    = 0b00,
+                            ECHO      = 0b01,
+                            LOOPBACK  = 0xb10,
+                            RLOOPBACK = 0b11
+                        ],
+                        NBSTOP        OFFSET(12)  NUMBITS(2) [
+                            BITS_1_1  = 0b00,
+                            BITS_15_R = 0b01,
+                            BITS_2_2  = 0b10,
+                            BITS_R_R  = 0b11
+                        ],
+                        PAR           OFFSET(9)   NUMBITS(3) [
+                            EVEN    = 0b000,
+                            ODD     = 0b001,
+                            SPACE   = 0b010,
+                            MARK    = 0b011,
+                            NONE    = 0b100,
+                            MULTID  = 0b110
+                        ],
+                        SYNC          OFFSET(8)   NUMBITS(1) [],
+                        CHRL          OFFSET(6)   NUMBITS(2) [
+                            BITS5  = 0b00,
+                            BITS6  = 0b01,
+                            BITS7  = 0b10,
+                            BITS8  = 0b11
+                        ],
+                        USCLKS        OFFSET(4)   NUMBITS(2) [
+                            CLK_USART     = 0b00,
+                            CLK_USART_DIV = 0b01,
+                            RES           = 0b10,
+                            CLK           = 0b11
+                        ],
+                        MODE          OFFSET(0)   NUMBITS(4) [
+                            NORMAL        = 0b0000,
+                            RS485         = 0b0001,
+                            HARD_HAND     = 0b0010,
+                            MODEM         = 0b0011,
+                            ISO7816_T0    = 0b0100,
+                            ISO7816_T1    = 0b0110,
+                            IRDA          = 0b1000,
+                            LIN_MASTER    = 0b1010,
+                            LIN_SLAVE     = 0b1011,
+                            SPI_MASTER    = 0b1110,
+                            SPI_SLAVE     = 0b1111
+                        ]
+                    ],
+                    Interrupt [
+                        LINHTE  31,
+                        LINSTE  30,
+                        LINSNRE 29,
+                        LINCE   28,
+                        LINIPE  27,
+                        LINISFE 26,
+                        LINBE   25,
+                        MANEA   24,
+                        MANE    20,
+                        CTSIC   19,
+                        DCDIC   18,
+                        DSRIC   17,
+                        RIIC    16,
+                        LINTC   15,
+                        LINID   14,
+                        NACK    13,
+                        RXBUFF  12,
+                        ITER    10,
+                        TXEMPTY  9,
+                        TIMEOUT  8,
+                        PARE     7,
+                        FRAME    6,
+                        OVRE     5,
+                        RXBRK    2,
+                        TXRDY    1,
+                        RXRDY    0
+                    ],
+                    ChannelStatus [
+                        LINHTE  31,
+                        LINSTE  30,
+                        LINSNRE 29,
+                        LINCE   28,
+                        LINIPE  27,
+                        LINISFE 26,
+                        LINBE   25,
+                        MANERR  24,
+                        CTS     23,
+                        DCD     22,
+                        DSR     21,
+                        RI      20,
+                        CTSIC   19,
+                        DCDIC   18,
+                        DSRIC   17,
+                        RIIC    16,
+                        LINTC   15,
+                        LINID   14,
+                        NACK    13,
+                        RXBUFF  12,
+                        ITER    10,
+                        TXEMPTY  9,
+                        TIMEOUT  8,
+                        PARE     7,
+                        FRAME    6,
+                        OVRE     5,
+                        RXBRK    2,
+                        TXRDY    1,
+                        RXRDY    0
+                    ],
+                    ReceiverHold [
+                        RXSYNH   OFFSET(15)  NUMBITS(1) [],
+                        RXCHR    OFFSET(0)   NUMBITS(9) []
+                    ],
+                    TransmitHold [
+                        TXSYNH   OFFSET(15)  NUMBITS(1) [],
+                        TXCHR    OFFSET(0)   NUMBITS(9) []
+                    ],
+                    BaudRate [
+                        FP       OFFSET(16)  NUMBITS(3)  [],
+                        CD       OFFSET(0)   NUMBITS(16) []
+                    ],
+                    RxTimeout [
+                        TO       OFFSET(0)  NUMBITS(17)  []
+                    ],
+                    TxTimeGuard [
+                        TG       OFFSET(0)  NUMBITS(8)   []
+                    ],
+                    FidiRatio [
+                        RATIO    OFFSET(0)  NUMBITS(11)  []
+                    ],
+                    NumErrors [
+                        NB_ERRORS  OFFSET(0)  NUMBITS(8)  []
+                    ],
+                    IrdaFilter [
+                        FILTER     OFFSET(0)  NUMBITS(8)  []
+                    ],
+                    Manchester [
+                        DRIFT      OFFSET(30) NUMBITS(1)  [],
+                        RX_MPOL    OFFSET(28) NUMBITS(1)  [],
+                        RX_PP      OFFSET(24) NUMBITS(2)  [
+                            ALL_ONE = 0b00,
+                            ALL_ZERO = 0b01,
+                            ZERO_ONE = 0b10,
+                            ONE_ZERO = 0b11
+                        ],
+                        RX_PL      OFFSET(16) NUMBITS(4)  [],
+                        TX_MPOL    OFFSET(12) NUMBITS(1)  [],
+                        TX_PP      OFFSET(8)  NUMBITS(2)  [
+                            ALL_ONE = 0b00,
+                            ALL_ZERO = 0b01,
+                            ZERO_ONE = 0b10,
+                            ONE_ZERO = 0b11
+                        ],
+                        TX_PL      OFFSET(0)  NUMBITS(4)  []
+                    ],
+                    LinMode [
+                        SYNCDIS   OFFSET(17)  NUMBITS(1) [],
+                        PDCM      OFFSET(16)  NUMBITS(1) [],
+                        DLC       OFFSET(8)   NUMBITS(8) [],
+                        WKUPTYP   OFFSET(7)   NUMBITS(1) [],
+                        FSDIS     OFFSET(6)   NUMBITS(1) [],
+                        DLM       OFFSET(5)   NUMBITS(1) [],
+                        CHKTYP    OFFSET(4)   NUMBITS(1) [],
+                        CHKDIS    OFFSET(3)   NUMBITS(1) [],
+                        PARDIS    OFFSET(2)   NUMBITS(1) [],
+                        NACT      OFFSET(0)   NUMBITS(2) [
+                            PUBLISH    = 0b00,
+                            SUBSCRIBE  = 0b01,
+                            IGNORE     = 0b10,
+                            RESERVED   = 0b11
+                        ]
+                    ],
+                    LinID [
+                        IDCHR   OFFSET(0)  NUMBITS(8) []
+                    ],
+                    LinBaud [
+                        LINFP   OFFSET(16) NUMBITS(3)  [],
+                        LINCD   OFFSET(0)  NUMBITS(16) []
+                    ],
+                    ProtectMode [
+                        WPKEY   OFFSET(8)  NUMBITS(24) [],
+                        WPEN    OFFSET(0)  NUMBITS(1)  []
+                    ],
+                    ProtectStatus [
+                        WPVSRC  OFFSET(8)  NUMBITS(16) [],
+                        WPVS    OFFSET(0)  NUMBITS(1)  []
+                    ],
+                    Version [
+                        MFN     OFFSET(16)  NUMBITS(3)  [],
+                        VERSION OFFSET(0)   NUMBITS(11) []
+                    ]
+];
+
+
+const USART_BASE_ADDRS: [*mut UsartRegisters; 4] = [
+    0x40024000 as *mut UsartRegisters,
+    0x40028000 as *mut UsartRegisters,
+    0x4002C000 as *mut UsartRegisters,
+    0x40030000 as *mut UsartRegisters,
 ];
 
 #[derive(Copy, Clone, PartialEq)]
@@ -78,7 +306,7 @@ enum UsartClient<'a> {
 }
 
 pub struct USART {
-    registers: *mut USARTRegisters,
+    registers: *mut UsartRegisters,
     clock: pm::Clock,
 
     usart_mode: Cell<UsartMode>,
@@ -126,7 +354,7 @@ pub static mut USART3: USART = USART::new(
 
 impl USART {
     const fn new(
-        base_addr: *mut USARTRegisters,
+        base_addr: *mut UsartRegisters,
         clock: pm::PBAClock,
         rx_dma_peripheral: dma::DMAPeripheral,
         tx_dma_peripheral: dma::DMAPeripheral,
@@ -163,20 +391,20 @@ impl USART {
 
     pub fn enable_rx(&self) {
         self.enable_clock();
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let cr_val = 0x00000000 | (1 << 4); // RXEN
         regs.cr.set(cr_val);
     }
 
     pub fn enable_tx(&self) {
         self.enable_clock();
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let cr_val = 0x00000000 | (1 << 6); // TXEN
         regs.cr.set(cr_val);
     }
 
     pub fn disable_rx(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let cr_val = 0x00000000 | (1 << 5); // RXDIS
         regs.cr.set(cr_val);
 
@@ -188,7 +416,7 @@ impl USART {
     }
 
     pub fn disable_tx(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let cr_val = 0x00000000 | (1 << 7); // TXDIS
         regs.cr.set(cr_val);
 
@@ -256,17 +484,17 @@ impl USART {
     }
 
     pub fn enable_tx_empty_interrupt(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         regs.ier.set(1 << 9);
     }
 
     pub fn disable_tx_empty_interrupt(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         regs.idr.set(1 << 9);
     }
 
     pub fn enable_rx_error_interrupts(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let ier_val = 0x00000000 |
             (1 <<  7) | // PARE
             (1 <<  6) | // FRAME
@@ -275,7 +503,7 @@ impl USART {
     }
 
     pub fn disable_rx_interrupts(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let idr_val = 0x00000000 |
             (1 << 12) | // RXBUFF
             (1 <<  8) | // TIMEOUT
@@ -287,7 +515,7 @@ impl USART {
     }
 
     pub fn disable_tx_interrupts(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let idr_val = 0x00000000 |
             (1 << 9) | // TXEMPTY
             (1 << 1); //. TXREADY
@@ -300,7 +528,7 @@ impl USART {
     }
 
     pub fn reset(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
 
         // reset status bits, transmitter, and receiver
         let cr_val = 0x00000000 |
@@ -322,7 +550,7 @@ impl USART {
         // stopped it from occurring just in case it caused issues in the
         // future.
         if self.is_clock_enabled() {
-            let regs: &USARTRegisters = unsafe { &*self.registers };
+            let regs: &UsartRegisters = unsafe { &*self.registers };
             let status = regs.csr.get();
             let mask = regs.imr.get();
 
@@ -368,12 +596,12 @@ impl USART {
     }
 
     fn set_mode(&self, mode: u32) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         regs.mr.set(mode);
     }
 
     fn set_baud_rate(&self, baud_rate: u32) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
 
         let system_frequency = pm::get_system_frequency();
 
@@ -390,19 +618,19 @@ impl USART {
     /// In non-SPI mode, this drives RTS low.
     /// In SPI mode, this asserts (drives low) the chip select line.
     fn rts_enable_spi_assert_cs(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         regs.cr.set(1 << 18);
     }
 
     /// In non-SPI mode, this drives RTS high.
     /// In SPI mode, this de-asserts (drives high) the chip select line.
     fn rts_disable_spi_deassert_cs(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         regs.cr.set(1 << 19);
     }
 
     fn enable_rx_timeout(&self, timeout: u8) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let rtor_val: u32 = 0x00000000 | timeout as u32;
         regs.rtor.set(rtor_val);
 
@@ -414,7 +642,7 @@ impl USART {
     }
 
     fn disable_rx_timeout(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         regs.rtor.set(0);
 
         // enable timeout interrupt
@@ -428,14 +656,14 @@ impl USART {
 
     // for use by panic in io.rs
     pub fn send_byte(&self, byte: u8) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let thr_val: u32 = 0x00000000 | byte as u32;
         regs.thr.set(thr_val);
     }
 
     // for use by panic in io.rs
     pub fn tx_ready(&self) -> bool {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         let csr_val: u32 = regs.csr.get();
         let mut ret_val = false;
         if (csr_val & (1 << 1)) == (1 << 1) {
@@ -725,7 +953,7 @@ impl hil::spi::SpiMaster for USART {
     type ChipSelect = Option<&'static hil::gpio::Pin>;
 
     fn init(&self) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
 
         self.usart_mode.set(UsartMode::Spi);
         self.enable_clock();
@@ -821,7 +1049,7 @@ impl hil::spi::SpiMaster for USART {
     }
 
     fn write_byte(&self, val: u8) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
         regs.cr.set((1 << 4) | (1 << 6));
 
@@ -829,13 +1057,13 @@ impl hil::spi::SpiMaster for USART {
     }
 
     fn read_byte(&self) -> u8 {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
         regs.rhr.get() as u8
     }
 
     fn read_write_byte(&self, val: u8) -> u8 {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
         regs.cr.set((1 << 4) | (1 << 6));
 
@@ -861,7 +1089,7 @@ impl hil::spi::SpiMaster for USART {
     }
 
     fn get_rate(&self) -> u32 {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
         let system_frequency = pm::get_system_frequency();
         let cd = regs.brgr.get() & 0xFFFF;
@@ -869,7 +1097,7 @@ impl hil::spi::SpiMaster for USART {
     }
 
     fn set_clock(&self, polarity: hil::spi::ClockPolarity) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
         let mode = regs.mr.get();
 
@@ -884,7 +1112,7 @@ impl hil::spi::SpiMaster for USART {
     }
 
     fn get_clock(&self) -> hil::spi::ClockPolarity {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
         let mode = regs.mr.get();
 
@@ -895,7 +1123,7 @@ impl hil::spi::SpiMaster for USART {
     }
 
     fn set_phase(&self, phase: hil::spi::ClockPhase) {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
         let mode = regs.mr.get();
 
@@ -910,7 +1138,7 @@ impl hil::spi::SpiMaster for USART {
     }
 
     fn get_phase(&self) -> hil::spi::ClockPhase {
-        let regs: &USARTRegisters = unsafe { &*self.registers };
+        let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
         let mode = regs.mr.get();
 
