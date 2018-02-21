@@ -392,21 +392,18 @@ impl USART {
     pub fn enable_rx(&self) {
         self.enable_clock();
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        let cr_val = 0x00000000 | (1 << 4); // RXEN
-        regs.cr.set(cr_val);
+        regs.cr.write(Control::RXEN.val(1));
     }
 
     pub fn enable_tx(&self) {
         self.enable_clock();
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        let cr_val = 0x00000000 | (1 << 6); // TXEN
-        regs.cr.set(cr_val);
+        regs.cr.write(Control::TXEN.val(1));
     }
 
     pub fn disable_rx(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        let cr_val = 0x00000000 | (1 << 5); // RXDIS
-        regs.cr.set(cr_val);
+        regs.cr.write(Control::RXDIS.val(1));
 
         self.usart_rx_state.set(USARTStateRX::Idle);
         if self.usart_tx_state.get() == USARTStateTX::Idle {
@@ -417,8 +414,7 @@ impl USART {
 
     pub fn disable_tx(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        let cr_val = 0x00000000 | (1 << 7); // TXDIS
-        regs.cr.set(cr_val);
+        regs.cr.write(Control::TXDIS.val(1));
 
         self.usart_tx_state.set(USARTStateTX::Idle);
         if self.usart_rx_state.get() == USARTStateRX::Idle {
@@ -485,41 +481,35 @@ impl USART {
 
     pub fn enable_tx_empty_interrupt(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        regs.ier.set(1 << 9);
+        regs.ier.write(Interrupt::TXEMPTY.val(1));
     }
 
     pub fn disable_tx_empty_interrupt(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        regs.idr.set(1 << 9);
+        regs.idr.write(Interrupt::TXEMPTY.val(1));
     }
 
     pub fn enable_rx_error_interrupts(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        let ier_val = 0x00000000 |
-            (1 <<  7) | // PARE
-            (1 <<  6) | // FRAME
-            (1 <<  5); //. OVRE
-        regs.ier.set(ier_val);
+        regs.ier.write(Interrupt::PARE.val(1) +
+                       Interrupt::FRAME.val(1) +
+                       Interrupt::OVRE.val(1));
     }
 
     pub fn disable_rx_interrupts(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        let idr_val = 0x00000000 |
-            (1 << 12) | // RXBUFF
-            (1 <<  8) | // TIMEOUT
-            (1 <<  7) | // PARE
-            (1 <<  6) | // FRAME
-            (1 <<  5) | // OVRE
-            (1 << 0); //.. RXRDY
-        regs.idr.set(idr_val);
+        regs.idr.write(Interrupt::RXBUFF.val(1) +
+                       Interrupt::TIMEOUT.val(1) +
+                       Interrupt::PARE.val(1) +
+                       Interrupt::FRAME.val(1) +
+                       Interrupt::OVRE.val(1) +
+                       Interrupt::RXRDY.val(1));
     }
 
     pub fn disable_tx_interrupts(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        let idr_val = 0x00000000 |
-            (1 << 9) | // TXEMPTY
-            (1 << 1); //. TXREADY
-        regs.idr.set(idr_val);
+        regs.idr.write(Interrupt::TXEMPTY.val(1) +
+                       Interrupt::TXRDY.val(1));
     }
 
     pub fn disable_interrupts(&self) {
@@ -530,12 +520,9 @@ impl USART {
     pub fn reset(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
 
-        // reset status bits, transmitter, and receiver
-        let cr_val = 0x00000000 |
-            (1 << 8) | // RSTSTA
-            (1 << 3) | // RSTTX
-            (1 <<2); //.. RSTRX
-        regs.cr.set(cr_val);
+        regs.cr.write(Control::RSTSTA.val(1) +
+                      Control::RSTTX.val(1) +
+                      Control::RSTRX.val(1));
 
         self.abort_rx(hil::uart::Error::ResetError);
         self.enable_clock(); // in case abort_rx turned them off
