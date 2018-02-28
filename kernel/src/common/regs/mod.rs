@@ -219,6 +219,12 @@ impl<R: RegisterLongName> FieldValue<u8, R> {
     }
 }
 
+impl<R: RegisterLongName> From<FieldValue<u8, R>> for u8 {
+    fn from(val: FieldValue<u8, R>) -> u8 {
+        val.value
+    }
+}
+
 impl<R: RegisterLongName> FieldValue<u16, R> {
     pub const fn new(mask: u16, shift: u32, value: u16) -> Self {
         FieldValue {
@@ -226,6 +232,17 @@ impl<R: RegisterLongName> FieldValue<u16, R> {
             value: (value << shift) & (mask << shift),
             associated_register: PhantomData,
         }
+    }
+
+    pub fn to_u16(&self) -> u16 {
+        self.value
+    }
+
+}
+
+impl<R: RegisterLongName> From<FieldValue<u16, R>> for u16 {
+    fn from(val: FieldValue<u16, R>) -> u16 {
+        val.value
     }
 }
 
@@ -236,6 +253,16 @@ impl<R: RegisterLongName> FieldValue<u32, R> {
             value: (value << shift) & (mask << shift),
             associated_register: PhantomData,
         }
+    }
+
+    pub fn to_u32(&self) -> u32 {
+        self.value
+    }
+}
+
+impl<R: RegisterLongName> From<FieldValue<u32, R>> for u32 {
+    fn from(val: FieldValue<u32, R>) -> u32 {
+        val.value
     }
 }
 

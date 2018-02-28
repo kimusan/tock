@@ -54,7 +54,7 @@ register_bitfields![u32,
                         RSTNACK 14,
                         RSTIT   13,
                         SENDA   12,
-                        STTT0   11,
+                        STTTO   11,
                         STPBRK  10,
                         STTBRK   9,
                         RSTSTA   8,
@@ -76,9 +76,9 @@ register_bitfields![u32,
                         DSNACK        OFFSET(21)  NUMBITS(1) [],
                         INACK         OFFSET(20)  NUMBITS(1) [],
                         OVER          OFFSET(19)  NUMBITS(1) [],
-                        CLKO          OFFSET(21)  NUMBITS(1) [],
-                        MODE9         OFFSET(20)  NUMBITS(1) [],
-                        MSBF          OFFSET(19)  NUMBITS(1) [],
+                        CLKO          OFFSET(18)  NUMBITS(1) [],
+                        MODE9         OFFSET(17)  NUMBITS(1) [],
+                        MSBF          OFFSET(16)  NUMBITS(1) [],
                         CHMODE        OFFSET(14)  NUMBITS(2) [
                             NORMAL    = 0b00,
                             ECHO      = 0b01,
@@ -543,24 +543,23 @@ impl USART {
 
             // Reset status registers. We need to do this first because some
             // interrupts signal us to turn off our clock.
-            regs.cr.set(1 << 8); // RSTSTA
+            regs.cr.write(Control::RSTSTA.val(1));
 
-            if status & (1 << 8) != 0 && mask & (1 << 8) != 0 {
+            if (status & ChannelStatus::TIMEOUT.val(1).to_u32()) != 0 &&
+               (mask & Interrupt::TIMEOUT.val(1).to_u32()) != 0 {
                 // TIMEOUT
                 self.disable_rx_timeout();
                 self.abort_rx(hil::uart::Error::CommandComplete);
-            } else if status & (1 << 9) != 0 && mask & (1 << 9) != 0 {
+            } else if (status & ChannelStatus::TXEMPTY.val(1).to_u32() != 0) &&
+                      (mask & (Interrupt::TXEMPTY.val(1).to_u32()) != 0) {
                 self.disable_tx_empty_interrupt();
                 self.disable_tx();
                 self.usart_tx_state.set(USARTStateTX::Idle);
-            } else if status & (1 << 7) != 0 {
-                // PARE
+            } else if status & ChannelStatus::PARE.val(1).to_u32() != 0 {
                 self.abort_rx(hil::uart::Error::ParityError);
-            } else if status & (1 << 6) != 0 {
-                // FRAME
+            } else if status & ChannelStatus::FRAME.val(1).to_u32() != 0 {
                 self.abort_rx(hil::uart::Error::FramingError);
-            } else if status & (1 << 5) != 0 {
-                // OVRE
+            } else if status & ChannelStatus::OVRE.val(1).to_u32() != 0 {
                 self.abort_rx(hil::uart::Error::OverrunError);
             }
         }
@@ -606,14 +605,14 @@ impl USART {
     /// In SPI mode, this asserts (drives low) the chip select line.
     fn rts_enable_spi_assert_cs(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        regs.cr.set(1 << 18);
+        regs.cr.write(Control::RTSEN.val(1));
     }
 
     /// In non-SPI mode, this drives RTS high.
     /// In SPI mode, this de-asserts (drives high) the chip select line.
     fn rts_disable_spi_deassert_cs(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        regs.cr.set(1 << 19);
+        regs.cr.write(Control::RTSDIS.val(1));
     }
 
     fn enable_rx_timeout(&self, timeout: u8) {
@@ -622,10 +621,10 @@ impl USART {
         regs.rtor.set(rtor_val);
 
         // enable timeout interrupt
-        regs.ier.set((1 << 8)); // TIMEOUT
+        regs.ier.write(Interrupt::TIMEOUT.val(1));
 
         // start timeout
-        regs.cr.set((1 << 11)); // STTTO
+        regs.cr.write(Control::STTTO.val(1));
     }
 
     fn disable_rx_timeout(&self) {
@@ -633,7 +632,7 @@ impl USART {
         regs.rtor.set(0);
 
         // enable timeout interrupt
-        regs.idr.set((1 << 8)); // TIMEOUT
+        regs.idr.write(Interrupt::TIMEOUT.val(1));
     }
 
     fn enable_rx_terminator(&self, _terminator: u8) {
@@ -806,26 +805,27 @@ impl hil::uart::UART for USART {
 
         // set USART mode register
         let mut mode = 0x00000000;
-        mode |= 0x1 << 19; // OVER: oversample at 8 times baud rate
-        mode |= 0x3 << 6; // CHRL: 8-bit characters
-        mode |= 0x0 << 4; // USCLKS: select CLK_USART
 
-        match params.stop_bits {
-            hil::uart::StopBits::One => mode |= 0x0 << 12, // NBSTOP: 1 stop bit
-            hil::uart::StopBits::Two => mode |= 0x2 << 12, // NBSTOP: 2 stop bits
+
+        mode |= Mode::OVER.val(1).to_u32();       // OVER: oversample at 8x
+        mode |= Mode::CHRL::BITS8.to_u32();       // CHRL: 8-bit characters
+        mode |= Mode::USCLKS::CLK_USART.to_u32(); // USCLKS: select CLK_USART
+
+        mode |= match params.stop_bits {
+            hil::uart::StopBits::One => Mode::NBSTOP::BITS_1_1.to_u32(),
+            hil::uart::StopBits::Two => Mode::NBSTOP::BITS_2_2.to_u32(),
         };
 
-        match params.parity {
-            hil::uart::Parity::None => mode |= 0x4 << 9, // PAR: no parity
-            hil::uart::Parity::Odd => mode |= 0x1 << 9,  // PAR: odd parity
-            hil::uart::Parity::Even => mode |= 0x0 << 9, // PAR: even parity
+        mode |= match params.parity {
+            hil::uart::Parity::None => Mode::PAR::NONE.to_u32(), // no parity
+            hil::uart::Parity::Odd =>  Mode::PAR::ODD.to_u32(),  // odd parity
+            hil::uart::Parity::Even => Mode::PAR::EVEN.to_u32(), // even parity
         };
 
-        if params.hw_flow_control {
-            mode |= 0x2 << 0; // MODE: hardware handshaking
-        } else {
-            mode |= 0x0 << 0; // MODE: normal
-        }
+        mode |= match params.hw_flow_control {
+            true =>  Mode::MODE::HARD_HAND.to_u32(),
+            false => Mode::MODE::NORMAL.to_u32()
+        };
 
         self.set_mode(mode);
 
@@ -948,13 +948,11 @@ impl hil::spi::SpiMaster for USART {
         // Set baud rate, default to 2 MHz.
         self.set_baud_rate(2000000);
 
-        let mode =
-            0xe << 0 /* SPI Master mode */
-            | 0 << 4 /* USCLKS*/
-            | 0x3 << 6 /* Character Length 8 bits */
-            | 0x4 << 9 /* No Parity */
-            | 1 << 18 /* USART drives the clock pin */;
-        self.set_mode(mode);
+        self.set_mode((Mode::MODE::SPI_MASTER +
+                      Mode::USCLKS::CLK_USART +
+                      Mode::CHRL::BITS8 +
+                      Mode::PAR::NONE +
+                      Mode::CLKO.val(1)).to_u32());
 
         // Disable transmitter timeguard
         regs.ttgr.set(4);
@@ -1038,8 +1036,7 @@ impl hil::spi::SpiMaster for USART {
     fn write_byte(&self, val: u8) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
-        regs.cr.set((1 << 4) | (1 << 6));
-
+        regs.cr.write(Control::RXEN.val(1) + Control::TXEN.val(1));
         regs.thr.set(val as u32);
     }
 
@@ -1052,10 +1049,10 @@ impl hil::spi::SpiMaster for USART {
     fn read_write_byte(&self, val: u8) -> u8 {
         let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
-        regs.cr.set((1 << 4) | (1 << 6));
+        regs.cr.write(Control::RXEN.val(1) + Control::TXEN.val(1));
 
         regs.thr.set(val as u32);
-        while regs.csr.get() & (1 << 0) == 0 {}
+        while regs.csr.read(ChannelStatus::RXRDY) == 0 {}
         regs.rhr.get() as u8
     }
 
@@ -1086,14 +1083,13 @@ impl hil::spi::SpiMaster for USART {
     fn set_clock(&self, polarity: hil::spi::ClockPolarity) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
-        let mode = regs.mr.get();
-
+        // Note that in SPI mode MSBF bit is clock polarity (CPOL)
         match polarity {
             hil::spi::ClockPolarity::IdleLow => {
-                regs.mr.set(mode & !(1 << 16));
+                regs.mr.modify(Mode::MSBF.val(0));
             }
             hil::spi::ClockPolarity::IdleHigh => {
-                regs.mr.set(mode | (1 << 16));
+                regs.mr.modify(Mode::MSBF.val(1));
             }
         }
     }
@@ -1101,9 +1097,10 @@ impl hil::spi::SpiMaster for USART {
     fn get_clock(&self) -> hil::spi::ClockPolarity {
         let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
-        let mode = regs.mr.get();
 
-        match mode & (1 << 16) {
+        // Note that in SPI mode MSBF bit is clock polarity (CPOL)
+        let idle = regs.mr.read(Mode::MSBF);
+        match idle {
             0 => hil::spi::ClockPolarity::IdleLow,
             _ => hil::spi::ClockPolarity::IdleHigh,
         }
@@ -1112,14 +1109,14 @@ impl hil::spi::SpiMaster for USART {
     fn set_phase(&self, phase: hil::spi::ClockPhase) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
-        let mode = regs.mr.get();
 
+        // Note that in SPI mode SYNC bit is clock phase
         match phase {
             hil::spi::ClockPhase::SampleLeading => {
-                regs.mr.set(mode | (1 << 8));
+                regs.mr.modify(Mode::SYNC.val(1));
             }
             hil::spi::ClockPhase::SampleTrailing => {
-                regs.mr.set(mode & !(1 << 8));
+                regs.mr.modify(Mode::SYNC.val(0));
             }
         }
     }
@@ -1127,9 +1124,10 @@ impl hil::spi::SpiMaster for USART {
     fn get_phase(&self) -> hil::spi::ClockPhase {
         let regs: &UsartRegisters = unsafe { &*self.registers };
         self.enable_clock();
-        let mode = regs.mr.get();
+        let phase = regs.mr.read(Mode::SYNC);
 
-        match mode & (1 << 8) {
+        // Note that in SPI mode SYNC bit is clock phase
+        match phase {
             0 => hil::spi::ClockPhase::SampleLeading,
             _ => hil::spi::ClockPhase::SampleTrailing,
         }
