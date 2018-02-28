@@ -6,7 +6,7 @@ use core::cell::Cell;
 use core::cmp;
 use dma;
 use kernel::ReturnCode;
-use kernel::common::regs::{ReadOnly,ReadWrite,WriteOnly};
+use kernel::common::regs::{ReadOnly, ReadWrite, WriteOnly};
 // other modules
 use kernel::hil;
 // local modules
@@ -15,31 +15,31 @@ use pm;
 // Register map for SAM4L USART
 #[repr(C)]
 struct UsartRegisters {
-    pub cr:       WriteOnly<u32, Control::Register>,        // 0x00
-    pub mr:       ReadWrite<u32, Mode::Register>,           // 0x04
-    pub ier:      WriteOnly<u32, Interrupt::Register>,      // 0x08
-    pub idr:      WriteOnly<u32, Interrupt::Register>,      // 0x0C
-    pub imr:      ReadOnly<u32,  Interrupt::Register>,      // 0x10
-    pub csr:      ReadOnly<u32,  ChannelStatus::Register>,  // 0x14
-    pub rhr:      ReadOnly<u32,  ReceiverHold::Register>,   // 0x18
-    pub thr:      WriteOnly<u32, TransmitHold::Register>,   // 0x1C
-    pub brgr:     ReadWrite<u32, BaudRate::Register>,       // 0x20
-    pub rtor:     ReadWrite<u32, RxTimeout::Register>,      // 0x24
-    pub ttgr:     ReadWrite<u32, TxTimeGuard::Register>,    // 0x28
+    pub cr: WriteOnly<u32, Control::Register>,       // 0x00
+    pub mr: ReadWrite<u32, Mode::Register>,          // 0x04
+    pub ier: WriteOnly<u32, Interrupt::Register>,    // 0x08
+    pub idr: WriteOnly<u32, Interrupt::Register>,    // 0x0C
+    pub imr: ReadOnly<u32, Interrupt::Register>,     // 0x10
+    pub csr: ReadOnly<u32, ChannelStatus::Register>, // 0x14
+    pub rhr: ReadOnly<u32, ReceiverHold::Register>,  // 0x18
+    pub thr: WriteOnly<u32, TransmitHold::Register>, // 0x1C
+    pub brgr: ReadWrite<u32, BaudRate::Register>,    // 0x20
+    pub rtor: ReadWrite<u32, RxTimeout::Register>,   // 0x24
+    pub ttgr: ReadWrite<u32, TxTimeGuard::Register>, // 0x28
     _reserved0: [ReadOnly<u32>; 5],
-    pub fidi:     ReadWrite<u32, FidiRatio::Register>,      // 0x40
-    pub ner:      ReadOnly<u32, NumErrors::Register>,       // 0x44
+    pub fidi: ReadWrite<u32, FidiRatio::Register>, // 0x40
+    pub ner: ReadOnly<u32, NumErrors::Register>,   // 0x44
     _reserved1: ReadOnly<u32>,
-    pub  ifr:     ReadWrite<u32, IrdaFilter::Register>,     // 0x4C
-    pub  man:     ReadWrite<u32, Manchester::Register>,     // 0x50
-    pub linmr:    ReadWrite<u32, LinMode::Register>,        // 0x54
-    pub linir:    ReadWrite<u32, LinID::Register>,          // 0x58
-    pub linbr:    ReadOnly<u32,  LinBaud::Register>,        // 0x5C
+    pub ifr: ReadWrite<u32, IrdaFilter::Register>, // 0x4C
+    pub man: ReadWrite<u32, Manchester::Register>, // 0x50
+    pub linmr: ReadWrite<u32, LinMode::Register>,  // 0x54
+    pub linir: ReadWrite<u32, LinID::Register>,    // 0x58
+    pub linbr: ReadOnly<u32, LinBaud::Register>,   // 0x5C
     _reserved2: [ReadOnly<u32>; 33],
-    pub wpmr:     ReadWrite<u32, ProtectMode::Register>,    // 0xE4
-    pub wpsr:     ReadOnly<u32,  ProtectStatus::Register>,  // 0xE8
+    pub wpmr: ReadWrite<u32, ProtectMode::Register>, // 0xE4
+    pub wpsr: ReadOnly<u32, ProtectStatus::Register>, // 0xE8
     _reserved3: [ReadOnly<u32>; 4],
-    pub version:  ReadOnly<u32,  Version::Register>,        // 0xFC
+    pub version: ReadOnly<u32, Version::Register>, // 0xFC
 }
 
 register_bitfields![u32,
@@ -269,7 +269,6 @@ register_bitfields![u32,
                     ]
 ];
 
-
 const USART_BASE_ADDRS: [*mut UsartRegisters; 4] = [
     0x40024000 as *mut UsartRegisters,
     0x40028000 as *mut UsartRegisters,
@@ -491,25 +490,23 @@ impl USART {
 
     pub fn enable_rx_error_interrupts(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        regs.ier.write(Interrupt::PARE.val(1) +
-                       Interrupt::FRAME.val(1) +
-                       Interrupt::OVRE.val(1));
+        regs.ier
+            .write(Interrupt::PARE.val(1) + Interrupt::FRAME.val(1) + Interrupt::OVRE.val(1));
     }
 
     pub fn disable_rx_interrupts(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        regs.idr.write(Interrupt::RXBUFF.val(1) +
-                       Interrupt::TIMEOUT.val(1) +
-                       Interrupt::PARE.val(1) +
-                       Interrupt::FRAME.val(1) +
-                       Interrupt::OVRE.val(1) +
-                       Interrupt::RXRDY.val(1));
+        regs.idr.write(
+            Interrupt::RXBUFF.val(1) + Interrupt::TIMEOUT.val(1) + Interrupt::PARE.val(1)
+                + Interrupt::FRAME.val(1) + Interrupt::OVRE.val(1)
+                + Interrupt::RXRDY.val(1),
+        );
     }
 
     pub fn disable_tx_interrupts(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
-        regs.idr.write(Interrupt::TXEMPTY.val(1) +
-                       Interrupt::TXRDY.val(1));
+        regs.idr
+            .write(Interrupt::TXEMPTY.val(1) + Interrupt::TXRDY.val(1));
     }
 
     pub fn disable_interrupts(&self) {
@@ -520,9 +517,8 @@ impl USART {
     pub fn reset(&self) {
         let regs: &UsartRegisters = unsafe { &*self.registers };
 
-        regs.cr.write(Control::RSTSTA.val(1) +
-                      Control::RSTTX.val(1) +
-                      Control::RSTRX.val(1));
+        regs.cr
+            .write(Control::RSTSTA.val(1) + Control::RSTTX.val(1) + Control::RSTRX.val(1));
 
         self.abort_rx(hil::uart::Error::ResetError);
         self.enable_clock(); // in case abort_rx turned them off
@@ -545,13 +541,15 @@ impl USART {
             // interrupts signal us to turn off our clock.
             regs.cr.write(Control::RSTSTA.val(1));
 
-            if (status & ChannelStatus::TIMEOUT.val(1).to_u32()) != 0 &&
-               (mask & Interrupt::TIMEOUT.val(1).to_u32()) != 0 {
+            if (status & ChannelStatus::TIMEOUT.val(1).to_u32()) != 0
+                && (mask & Interrupt::TIMEOUT.val(1).to_u32()) != 0
+            {
                 // TIMEOUT
                 self.disable_rx_timeout();
                 self.abort_rx(hil::uart::Error::CommandComplete);
-            } else if (status & ChannelStatus::TXEMPTY.val(1).to_u32() != 0) &&
-                      (mask & (Interrupt::TXEMPTY.val(1).to_u32()) != 0) {
+            } else if (status & ChannelStatus::TXEMPTY.val(1).to_u32() != 0)
+                && (mask & (Interrupt::TXEMPTY.val(1).to_u32()) != 0)
+            {
                 self.disable_tx_empty_interrupt();
                 self.disable_tx();
                 self.usart_tx_state.set(USARTStateTX::Idle);
@@ -806,9 +804,8 @@ impl hil::uart::UART for USART {
         // set USART mode register
         let mut mode = 0x00000000;
 
-
-        mode |= Mode::OVER.val(1).to_u32();       // OVER: oversample at 8x
-        mode |= Mode::CHRL::BITS8.to_u32();       // CHRL: 8-bit characters
+        mode |= Mode::OVER.val(1).to_u32(); // OVER: oversample at 8x
+        mode |= Mode::CHRL::BITS8.to_u32(); // CHRL: 8-bit characters
         mode |= Mode::USCLKS::CLK_USART.to_u32(); // USCLKS: select CLK_USART
 
         mode |= match params.stop_bits {
@@ -818,13 +815,13 @@ impl hil::uart::UART for USART {
 
         mode |= match params.parity {
             hil::uart::Parity::None => Mode::PAR::NONE.to_u32(), // no parity
-            hil::uart::Parity::Odd =>  Mode::PAR::ODD.to_u32(),  // odd parity
+            hil::uart::Parity::Odd => Mode::PAR::ODD.to_u32(),   // odd parity
             hil::uart::Parity::Even => Mode::PAR::EVEN.to_u32(), // even parity
         };
 
         mode |= match params.hw_flow_control {
-            true =>  Mode::MODE::HARD_HAND.to_u32(),
-            false => Mode::MODE::NORMAL.to_u32()
+            true => Mode::MODE::HARD_HAND.to_u32(),
+            false => Mode::MODE::NORMAL.to_u32(),
         };
 
         self.set_mode(mode);
@@ -948,11 +945,11 @@ impl hil::spi::SpiMaster for USART {
         // Set baud rate, default to 2 MHz.
         self.set_baud_rate(2000000);
 
-        self.set_mode((Mode::MODE::SPI_MASTER +
-                      Mode::USCLKS::CLK_USART +
-                      Mode::CHRL::BITS8 +
-                      Mode::PAR::NONE +
-                      Mode::CLKO.val(1)).to_u32());
+        self.set_mode(
+            (Mode::MODE::SPI_MASTER + Mode::USCLKS::CLK_USART + Mode::CHRL::BITS8 + Mode::PAR::NONE
+                + Mode::CLKO.val(1))
+                .to_u32(),
+        );
 
         // Disable transmitter timeguard
         regs.ttgr.set(4);

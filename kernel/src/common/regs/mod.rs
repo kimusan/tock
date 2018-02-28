@@ -237,7 +237,6 @@ impl<R: RegisterLongName> FieldValue<u16, R> {
     pub fn to_u16(&self) -> u16 {
         self.value
     }
-
 }
 
 impl<R: RegisterLongName> From<FieldValue<u16, R>> for u16 {
